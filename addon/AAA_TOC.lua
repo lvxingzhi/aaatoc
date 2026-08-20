@@ -93,6 +93,7 @@ local function CreateBox(key, title, w, h, onLayout)
     f.key = key
     f:SetSize(w, h)
     f:SetMovable(true)
+    f:SetResizable(true)
     f:SetClampedToScreen(true)
     f:EnableMouse(true)
 
@@ -418,6 +419,39 @@ end
 -------------------------------------------------------------------------------
 local descName, descNameEn, descId, descTags, tagRow, descScroll, descText
 
+-- 根据描述文本内容调整滚动内容高度，保证长文本可以完整滚动
+local function UpdateDescHeight()
+    if not descScroll or not descScroll.content or not descText then return end
+
+    local viewH = descScroll:GetHeight()
+    local viewW = descScroll:GetWidth() - SCROLLBAR_W - 4
+
+    -- 可视区未被引擎布局时先跳过, 等下一帧布局完成后再算
+    if viewW < 1 or viewH < 1 then return end
+
+    -- 内容宽度必须明确, 否则 FontString 自动换行高度可能计算错误
+    descScroll.content:SetWidth(viewW)
+    descText:SetWidth(viewW)
+
+    -- 先保证 content 至少和可视区域一样高
+    descScroll.content:SetHeight(math.max(1, viewH))
+
+    -- 强制让 FontString 完成布局后再取高度
+    local textH = descText:GetStringHeight() or 0
+
+    -- 给底部一点余量, 避免最后一行被裁掉
+    local contentH = math.max(viewH, textH + 8)
+    descScroll.content:SetHeight(contentH)
+
+    local max = math.max(0, contentH - viewH)
+
+    descScroll.sb:SetMinMaxValues(0, max)
+
+    local offset = Clamp(descScroll:GetVerticalScroll(), 0, max)
+    descScroll:SetVerticalScroll(offset)
+    descScroll.sb:SetValue(offset)
+end
+
 local function ShowSpell(sp)
     if not sp then
         descName:SetText('')
@@ -426,6 +460,7 @@ local function ShowSpell(sp)
         descText:SetText('点击左侧技能查看详情')
         descText:SetTextColor(unpack(COLORS.sub))
         for i = 1, 7 do descTags[i]:Hide() end
+        UpdateDescHeight()
         return
     end
     local name, nameEn, id, flags, desc = unpack(sp)
@@ -447,9 +482,19 @@ local function ShowSpell(sp)
     end
     descText:SetText((desc and desc ~= '') and desc or '（无描述）')
     descText:SetTextColor(unpack(COLORS.text))
+
     descScroll:SetVerticalScroll(0)
     descScroll.sb:SetValue(0)
-    descScroll.sb:SetMinMaxValues(0, descScroll:GetVerticalScrollRange())
+
+    -- 第一次立即刷新
+    UpdateDescHeight()
+
+    -- WoW 下一帧再刷新一次, 确保 FontString 已完成换行/高度计算
+    C_Timer.After(0, function()
+        if descScroll and descScroll:IsShown() then
+            UpdateDescHeight()
+        end
+    end)
 end
 
 -------------------------------------------------------------------------------
@@ -459,24 +504,18 @@ local dungeonList, mobList, spellList
 local dungeonBox, mobBox, spellBox
 local currentDungeon, currentMob, currentSpell
 
-local function SelectDungeon(idx)
-    if currentDungeon == idx then
-        -- 再点同一个: 取消选择
-        currentDungeon, currentMob, currentSpell = nil, nil, nil
-        dungeonList:SetSelected(0)
-        mobBox:Hide()
-        spellBox:Hide()
+local function SelectSpell(si)
+    local mobs = D.m[currentDungeon]
+    local spells = mobs and mobs[currentMob] and mobs[currentMob][2] or {}
+    if currentSpell == si then
+        -- 再点同一个: 取消选中
+        currentSpell = nil
+        spellList:SetSelected(0)
+        ShowSpell(nil)
     else
-        currentDungeon = idx
-        currentMob, currentSpell = nil, nil
-        dungeonList:SetSelected(idx)
-        mobBox:Show()
-        spellBox:Hide()
-        local mobs = D.m[idx] or {}
-        mobList:SetItems(mobs, RenderMobRow, SelectMob, function(mi)
-            local meta = mobs[mi][1]
-            ShowTooltip({ meta[1], '|cff888888' .. meta[2] .. '|r', '|cff666666NPC ' .. meta[3] .. '|r' })
-        end)
+        currentSpell = si
+        spellList:SetSelected(si)
+        ShowSpell(spells[si])
     end
 end
 
@@ -501,18 +540,24 @@ local function SelectMob(mi)
     end
 end
 
-local function SelectSpell(si)
-    local mobs = D.m[currentDungeon]
-    local spells = mobs and mobs[currentMob] and mobs[currentMob][2] or {}
-    if currentSpell == si then
-        -- 再点同一个: 取消选中
-        currentSpell = nil
-        spellList:SetSelected(0)
-        ShowSpell(nil)
+local function SelectDungeon(idx)
+    if currentDungeon == idx then
+        -- 再点同一个: 取消选择
+        currentDungeon, currentMob, currentSpell = nil, nil, nil
+        dungeonList:SetSelected(0)
+        mobBox:Hide()
+        spellBox:Hide()
     else
-        currentSpell = si
-        spellList:SetSelected(si)
-        ShowSpell(spells[si])
+        currentDungeon = idx
+        currentMob, currentSpell = nil, nil
+        dungeonList:SetSelected(idx)
+        mobBox:Show()
+        spellBox:Hide()
+        local mobs = D.m[idx] or {}
+        mobList:SetItems(mobs, RenderMobRow, SelectMob, function(mi)
+            local meta = mobs[mi][1]
+            ShowTooltip({ meta[1], '|cff888888' .. meta[2] .. '|r', '|cff666666NPC ' .. meta[3] .. '|r' })
+        end)
     end
 end
 
@@ -543,13 +588,23 @@ local function BuildUI()
 
     -- 技能框
     local divider
-    spellBox = CreateBox('spell', '技能', 560, 400, function(self, w)
+    spellBox = CreateBox('spell', '技能', 560, 400, function(self, w, h)
         if not divider then return end
+        local x = 0.45 * w
         divider:ClearAllPoints()
-        divider:SetPoint('TOPLEFT', self, 'TOPLEFT', 0.45 * w, -28)
-        divider:SetPoint('BOTTOMLEFT', self, 'BOTTOMLEFT', 0.45 * w, 4)
-        if descText then
-            descText:SetWidth(descScroll:GetWidth() - SCROLLBAR_W)
+        divider:SetPoint('TOPLEFT', self, 'TOPLEFT', x, -28)
+        divider:SetPoint('BOTTOMLEFT', self, 'BOTTOMLEFT', x, 4)
+        if descScroll then
+            local left = x + 10
+            local top = 30 + 18 + 18 + 10
+            local right = 2 + SCROLLBAR_W
+            local bottom = 6
+            local descW = math.max(1, w - left - right)
+            local descH = math.max(1, h - top - bottom)
+            descScroll:ClearAllPoints()
+            descScroll:SetPoint('TOPLEFT', self, 'TOPLEFT', left, -top)
+            descScroll:SetSize(descW, descH)
+            UpdateDescHeight()
         end
     end)
 
@@ -607,16 +662,42 @@ local function BuildUI()
     end
 
     -- 描述滚动区
+    -- 不依赖 tagRow 的自动尺寸计算，直接根据技能框尺寸明确设置描述区位置和大小
     descScroll = CreateFrame('ScrollFrame', nil, spellBox)
-    descScroll:SetPoint('TOPLEFT', tagRow, 'BOTTOMLEFT', 0, -10)
-    descScroll:SetPoint('BOTTOMRIGHT', spellBox, 'BOTTOMRIGHT', -2, 6)
     descScroll:EnableMouseWheel(true)
-    descText = descScroll:CreateFontString(nil, 'OVERLAY', 'GameFontNormal')
-    descText:SetPoint('TOPLEFT')
+    local function LayoutDescScroll()
+        if not descScroll or not spellBox then return end
+        local w = spellBox:GetWidth()
+        local h = spellBox:GetHeight()
+        if not w or not h or w <= 0 or h <= 0 then return end
+        -- 技能框右侧 45% 为描述区 (divider 位于 45% 位置)
+        local left = w * 0.45 + 10
+        -- 描述区顶部: 标题30 + 英文名18 + 标签行18 + 间距10
+        local top = 30 + 18 + 18 + 10
+        -- 右侧给滚动条留出空间, 底部留 6
+        local right = 2 + SCROLLBAR_W
+        local bottom = 6
+        local descW = math.max(1, w - left - right)
+        local descH = math.max(1, h - top - bottom)
+        descScroll:ClearAllPoints()
+        descScroll:SetPoint('TOPLEFT', spellBox, 'TOPLEFT', left, -top)
+        descScroll:SetSize(descW, descH)
+        if descScroll.content then UpdateDescHeight() end
+    end
+    LayoutDescScroll()
+    -- SetScrollChild 要求 scrollChild 必须是 Frame 对象，FontString 是 Region 无法作为滚动子对象
+    descScroll.content = CreateFrame('Frame', nil, descScroll)
+    descScroll.content:SetPoint('TOPLEFT', descScroll, 'TOPLEFT')
+    descScroll.content:SetWidth(1)
+    descScroll.content:SetHeight(1)
+    descScroll:SetScrollChild(descScroll.content)
+    descText = descScroll.content:CreateFontString(nil, 'OVERLAY', 'GameFontNormal')
+    descText:SetPoint('TOPLEFT', descScroll.content, 'TOPLEFT', 0, 0)
     descText:SetJustifyH('LEFT')
     descText:SetJustifyV('TOP')
+    descText:SetWordWrap(true)
     descText:SetTextColor(unpack(COLORS.text))
-    descScroll:SetScrollChild(descText)
+    descText:SetWidth(300)
     descScroll:SetScript('OnMouseWheel', function(self, delta)
         local max = self:GetVerticalScrollRange()
         self:SetVerticalScroll(Clamp(self:GetVerticalScroll() - delta * 24, 0, max))
@@ -637,10 +718,6 @@ local function BuildUI()
         s:SetValue(offset)
         s:SetMinMaxValues(0, self:GetVerticalScrollRange())
     end)
-
-    -- 初始布局
-    local onSize = spellBox:GetScript('OnSizeChanged')
-    onSize(spellBox, spellBox:GetWidth(), spellBox:GetHeight())
 
     -- 列表数据 (不预选副本)
     dungeonList:SetItems(D.d, RenderDungeonRow, SelectDungeon, function(di)
