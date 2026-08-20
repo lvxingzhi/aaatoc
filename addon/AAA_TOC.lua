@@ -2,7 +2,6 @@
 -- /aaa 打开, /aaa reset 重置位置
 -- 全部手动点击: 点副本显示怪物, 再点同一个取消; 点怪物显示技能, 再点同一个取消
 -- 三个窗口可分别拖拽移动(标题栏)与调整大小(右下角手柄)
--- 仅使用 1.x 时代基础 API, 不依赖 BackdropTemplate / FauxScrollFrame / SetResizable
 
 local ADDON_NAME, NS = ...
 
@@ -15,7 +14,11 @@ end
 AAATOCDB = AAATOCDB or {}
 
 local ROW_H = 24
+local SCROLLBAR_W = 20 -- 滚动条模板宽度, 列表/描述区统一定位用
+local DESC_PAD = 22    -- 描述区右侧留白(技能名/英文名/ID 右边界)
 local unpack = unpack or table.unpack
+-- bit 库为 WoW 内置, 做兼容兜底: 缺失时不显示技能标志, 避免 nil 调用报错
+local bit_band = bit and bit.band or function(a, b) return 0 end
 
 -- 技能标志: bit / 行内短标 / 颜色 / 徽章全名
 local FLAGS = {
@@ -56,7 +59,7 @@ local function ShowTooltip(lines)
 end
 
 -------------------------------------------------------------------------------
--- 窗口框架: 纯纹理背景边框, 标题栏拖动, 右下角手柄缩放
+-- 窗口框架
 -------------------------------------------------------------------------------
 local function SaveFrame(f)
     local l, t = f:GetLeft(), f:GetTop()
@@ -69,7 +72,7 @@ end
 local function LoadFrame(f, anchor)
     local s = AAATOCDB[f.key]
     f:ClearAllPoints()
-    if s and s.x and s.y and s.w then
+    if s and s.x ~= nil and s.y ~= nil and s.w and s.h then
         local W, H = UIParent:GetWidth(), UIParent:GetHeight()
         f:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', s.x * W, -s.y * H)
         f:SetSize(math.max(s.w, MIN_W), math.max(s.h, MIN_H))
@@ -78,7 +81,6 @@ local function LoadFrame(f, anchor)
     end
 end
 
--- 纯色线条纹理
 local function MakeLine(parent, r, g, b, a)
     local t = parent:CreateTexture(nil, 'ARTWORK')
     t:SetTexture(1, 1, 1, 1)
@@ -173,7 +175,7 @@ local function CreateBox(key, title, w, h, onLayout)
 end
 
 -------------------------------------------------------------------------------
--- 通用列表: 原生 ScrollFrame + 手动按钮池 (无任何模板依赖)
+-- 通用列表
 -------------------------------------------------------------------------------
 local function CreateListBox(parent)
     local box = { items = {}, selected = 0, emptyText = '暂无数据' }
@@ -185,11 +187,17 @@ local function CreateListBox(parent)
     scroll:EnableMouseWheel(true)
     box.scroll = scroll
 
+    -- 滚动内容容器: 高度与数据条数同步, 决定 ScrollFrame 的滚动范围
+    local content = CreateFrame('Frame', nil, scroll)
+    content:SetSize(1, 1)
+    scroll:SetScrollChild(content)
+    box.content = content
+
     -- 滚动条
     local sb = CreateFrame('Slider', nil, scroll, 'UIPanelScrollBarTemplate')
-    sb:SetPoint('TOPLEFT', scroll, 'TOPRIGHT', -18, -18)
-    sb:SetPoint('BOTTOMLEFT', scroll, 'BOTTOMRIGHT', -18, 18)
-    sb:SetWidth(16)
+    sb:SetPoint('TOPLEFT', scroll, 'TOPRIGHT', -SCROLLBAR_W, -18)
+    sb:SetPoint('BOTTOMLEFT', scroll, 'BOTTOMRIGHT', -SCROLLBAR_W, 18)
+    sb:SetWidth(SCROLLBAR_W)
     sb:SetValueStep(1)
     sb:Hide()
     box.sb = sb
@@ -199,10 +207,9 @@ local function CreateListBox(parent)
     empty:SetTextColor(unpack(COLORS.sub))
     box.empty = empty
 
-    -- 按钮池
-    local buttons = {}
-    for i = 1, 40 do
-        local b = CreateFrame('Button', nil, scroll)
+    -- 按钮池: 按可视行数动态补充, 窗口放大时自动增加
+    local function MakeButton(i)
+        local b = CreateFrame('Button', nil, content)
         b:SetHeight(ROW_H)
         b:RegisterForClicks('AnyUp')
         b:SetHighlightTexture('Interface\\Tooltips\\UI-Tooltip-Background', 'ADD')
@@ -254,9 +261,12 @@ local function CreateListBox(parent)
         b:SetScript('OnLeave', function() GameTooltip:Hide() end)
 
         b:Hide()
-        buttons[i] = b
+        box.buttons[i] = b
+        return b
     end
-    box.buttons = buttons
+
+    box.buttons = {}
+    for i = 1, 40 do MakeButton(i) end
 
     scroll:SetScript('OnVerticalScroll', function(self, offset)
         sb:SetValue(offset)
@@ -283,6 +293,7 @@ local function CreateListBox(parent)
         self.onClick = onClick
         self.onTooltip = onTooltip
         self.selected = 0
+        self.scroll:SetVerticalScroll(0)
         self:Update()
     end
 
@@ -294,9 +305,16 @@ local function CreateListBox(parent)
     function box:Update()
         local n = #self.items
         local h = self.scroll:GetHeight()
-        local maxOffset = math.max(0, n * ROW_H - h)
+        local contentHeight = math.max(h, n * ROW_H)
+        self.content:SetHeight(contentHeight)
+        local maxOffset = math.max(0, contentHeight - h)
         local offset = Clamp(self.scroll:GetVerticalScroll(), 0, maxOffset)
         self.scroll:SetVerticalScroll(offset)
+        -- 可视行数超过按钮池时动态补充
+        local need = math.ceil(h / ROW_H) + 1
+        while need > #self.buttons do
+            MakeButton(#self.buttons + 1)
+        end
         if maxOffset > 0 then
             self.sb:Show()
             self.sb:SetMinMaxValues(0, maxOffset)
@@ -304,7 +322,6 @@ local function CreateListBox(parent)
         else
             self.sb:Hide()
         end
-        local shown = math.floor(h / ROW_H)
         local first = math.floor(offset / ROW_H)
         local pixel = offset - first * ROW_H
         for i = 1, #self.buttons do
@@ -314,7 +331,7 @@ local function CreateListBox(parent)
                 b:Show()
                 b:ClearAllPoints()
                 b:SetPoint('TOPLEFT', self.scroll, 'TOPLEFT', 2, -((i - 1) * ROW_H) + pixel)
-                b:SetPoint('TOPRIGHT', self.scroll, 'TOPRIGHT', -26, -((i - 1) * ROW_H) + pixel)
+                b:SetPoint('TOPRIGHT', self.scroll, 'TOPRIGHT', -(SCROLLBAR_W + 6), -((i - 1) * ROW_H) + pixel)
                 b.index = idx
                 if idx == self.selected then
                     b.sel:Show()
@@ -372,7 +389,7 @@ local function RenderSpellRow(b, item)
     b.txt:SetTextColor(unpack(COLORS.text))
     for i = 1, 7 do
         local f = FLAGS[i]
-        if bit.band(item[4], f.bit) ~= 0 then
+        if bit_band(item[4], f.bit) ~= 0 then
             b.tags[i]:SetText(f.txt)
             b.tags[i]:SetTextColor(unpack(f.color))
         else
@@ -405,10 +422,11 @@ local function ShowSpell(sp)
     for i = 1, 7 do
         local f = FLAGS[i]
         local tag = descTags[i]
-        if bit.band(flags, f.bit) ~= 0 then
+        if bit_band(flags, f.bit) ~= 0 then
             tag:Show()
             tag.bg:SetVertexColor(unpack(f.color))
             tag.txt:SetText(f.name)
+            tag:SetWidth(tag.txt:GetStringWidth() + 10)
         else
             tag:Hide()
         end
@@ -421,7 +439,7 @@ local function ShowSpell(sp)
 end
 
 -------------------------------------------------------------------------------
--- 导航: 默认不选, 再点同一个取消, 联动显示/隐藏
+-- 导航
 -------------------------------------------------------------------------------
 local dungeonList, mobList, spellList
 local dungeonBox, mobBox, spellBox
@@ -510,17 +528,19 @@ local function BuildUI()
     mobList.emptyText = '该副本暂无怪物记录'
 
     -- 技能框
+    local divider
     spellBox = CreateBox('spell', '技能', 560, 400, function(self, w)
+        if not divider then return end
         divider:ClearAllPoints()
-        divider:SetPoint('TOP', self, 'TOP', -0.45 * w, -28)
-        divider:SetPoint('BOTTOM', self, 'BOTTOM', -0.45 * w, 4)
+        divider:SetPoint('TOPLEFT', self, 'TOPLEFT', 0.45 * w, -28)
+        divider:SetPoint('BOTTOMLEFT', self, 'BOTTOMLEFT', 0.45 * w, 4)
         if descText then
-            descText:SetWidth(self:GetWidth() * 0.55 - 46)
+            descText:SetWidth(descScroll:GetWidth() - SCROLLBAR_W)
         end
     end)
 
     -- 列表/描述分隔线
-    local divider = spellBox:CreateTexture(nil, 'ARTWORK')
+    divider = spellBox:CreateTexture(nil, 'ARTWORK')
     divider:SetTexture(1, 1, 1, 0.12)
     divider:SetWidth(1)
 
@@ -532,21 +552,21 @@ local function BuildUI()
     spellList.emptyText = '选择怪物查看技能'
 
     -- 描述区: 技能名 / 英文名+ID / 徽章 / 描述
+    descId = spellBox:CreateFontString(nil, 'OVERLAY', 'GameFontDisableSmall')
+    descId:SetPoint('TOPRIGHT', spellBox, 'TOPRIGHT', -DESC_PAD, -30)
+    descId:SetTextColor(unpack(COLORS.sub))
+
     descName = spellBox:CreateFontString(nil, 'OVERLAY', 'GameFontNormalLarge')
     descName:SetPoint('TOPLEFT', divider, 'TOPRIGHT', 10, -2)
-    descName:SetPoint('RIGHT', spellBox, 'RIGHT', -60, 0)
+    descName:SetPoint('RIGHT', descId, 'LEFT', -8, 0)
     descName:SetJustifyH('LEFT')
     descName:SetWordWrap(false)
 
     descNameEn = spellBox:CreateFontString(nil, 'OVERLAY', 'GameFontDisableSmall')
     descNameEn:SetPoint('TOPLEFT', descName, 'BOTTOMLEFT', 0, -2)
-    descNameEn:SetPoint('RIGHT', spellBox, 'RIGHT', -60, 0)
+    descNameEn:SetPoint('RIGHT', spellBox, 'RIGHT', -DESC_PAD, 0)
     descNameEn:SetJustifyH('LEFT')
     descNameEn:SetWordWrap(false)
-
-    descId = spellBox:CreateFontString(nil, 'OVERLAY', 'GameFontDisableSmall')
-    descId:SetPoint('TOPRIGHT', spellBox, 'TOPRIGHT', -16, -30)
-    descId:SetTextColor(unpack(COLORS.sub))
 
     tagRow = CreateFrame('Frame', nil, spellBox)
     tagRow:SetPoint('TOPLEFT', descNameEn, 'BOTTOMLEFT', 0, -6)
@@ -575,7 +595,7 @@ local function BuildUI()
     -- 描述滚动区
     descScroll = CreateFrame('ScrollFrame', nil, spellBox)
     descScroll:SetPoint('TOPLEFT', tagRow, 'BOTTOMLEFT', 0, -10)
-    descScroll:SetPoint('BOTTOMRIGHT', spellBox, 'BOTTOMRIGHT', -18, 6)
+    descScroll:SetPoint('BOTTOMRIGHT', spellBox, 'BOTTOMRIGHT', -SCROLLBAR_W, 6)
     descScroll:EnableMouseWheel(true)
     descText = descScroll:CreateFontString(nil, 'OVERLAY', 'GameFontNormal')
     descText:SetPoint('TOPLEFT')
@@ -588,9 +608,9 @@ local function BuildUI()
         self:SetVerticalScroll(Clamp(self:GetVerticalScroll() - delta * 24, 0, max))
     end)
     local sb = CreateFrame('Slider', nil, descScroll, 'UIPanelScrollBarTemplate')
-    sb:SetPoint('TOPLEFT', descScroll, 'TOPRIGHT', -16, -18)
-    sb:SetPoint('BOTTOMLEFT', descScroll, 'BOTTOMRIGHT', -16, 18)
-    sb:SetWidth(16)
+    sb:SetPoint('TOPLEFT', descScroll, 'TOPRIGHT', -SCROLLBAR_W, -18)
+    sb:SetPoint('BOTTOMLEFT', descScroll, 'BOTTOMRIGHT', -SCROLLBAR_W, 18)
+    sb:SetWidth(SCROLLBAR_W)
     sb:SetMinMaxValues(0, 0)
     sb:SetValueStep(1)
     sb:SetScript('OnValueChanged', function(self, value)
@@ -623,10 +643,8 @@ end
 local function ShowAll(show)
     dungeonBox:SetShown(show)
     if show then
-        if currentDungeon then
-            mobBox:SetShown(true)
-            if currentMob then spellBox:SetShown(true) end
-        end
+        mobBox:SetShown(currentDungeon ~= nil)
+        spellBox:SetShown(currentDungeon ~= nil and currentMob ~= nil)
     else
         mobBox:SetShown(false)
         spellBox:SetShown(false)
@@ -635,6 +653,10 @@ end
 
 local function ResetFrames()
     AAATOCDB = {}
+    currentDungeon, currentMob, currentSpell = nil, nil, nil
+    dungeonList:SetSelected(0)
+    mobList:SetSelected(0)
+    spellList:SetSelected(0)
     LoadFrame(dungeonBox, { 'CENTER', UIParent, 'CENTER', -420, 20 })
     LoadFrame(mobBox, { 'TOPLEFT', dungeonBox, 'TOPRIGHT', 8, 0 })
     LoadFrame(spellBox, { 'TOPLEFT', mobBox, 'TOPRIGHT', 8, 0 })
@@ -650,11 +672,11 @@ spellBox:Hide()
 
 SLASH_AAATOC1 = '/aaa'
 SlashCmdList.AAATOC = function(msg)
-    msg = (msg or ''):trim():lower()
+    msg = strtrim(msg or ''):lower()
     if msg == 'reset' then
         ResetFrames()
         ShowAll(true)
-        print('|cff88ccffAAA TOC|r: 位置与大小已重置')
+        print('|cff88ccffAAA TOC|r: 位置、大小与选择已重置')
     elseif msg == 'show' then
         ShowAll(true)
     elseif msg == 'hide' then
@@ -662,7 +684,7 @@ SlashCmdList.AAATOC = function(msg)
     elseif msg == 'help' then
         print('|cff88ccffAAA TOC|r 命令:')
         print('  /aaa        显示/隐藏')
-        print('  /aaa reset  重置窗口位置和大小')
+        print('  /aaa reset  重置窗口位置、大小和选择')
     else
         ShowAll(not dungeonBox:IsShown())
     end
