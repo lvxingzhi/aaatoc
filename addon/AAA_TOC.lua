@@ -187,8 +187,9 @@ local function CreateListBox(parent)
     scroll:EnableMouseWheel(true)
     box.scroll = scroll
 
-    -- 滚动内容容器: 高度与数据条数同步, 决定 ScrollFrame 的滚动范围
+    -- 滚动内容容器: 宽度对齐可视区(滚动条左侧), 高度与数据条数同步
     local content = CreateFrame('Frame', nil, scroll)
+    content:SetPoint('TOPLEFT', scroll, 'TOPLEFT')
     content:SetSize(1, 1)
     scroll:SetScrollChild(content)
     box.content = content
@@ -266,11 +267,12 @@ local function CreateListBox(parent)
     end
 
     box.buttons = {}
+    -- 初始按默认窗口高度预留, 不足时由 UpdateRows 动态补充
     for i = 1, 40 do MakeButton(i) end
 
     scroll:SetScript('OnVerticalScroll', function(self, offset)
         sb:SetValue(offset)
-        box:Update()
+        box:UpdateRows(offset)
     end)
     scroll:SetScript('OnMouseWheel', function(self, delta)
         local max = box:GetMaxOffset()
@@ -303,18 +305,21 @@ local function CreateListBox(parent)
     end
 
     function box:Update()
+        -- 1) 更新 content 尺寸(宽度对齐可视区, 高度与数据总高同步)
         local n = #self.items
         local h = self.scroll:GetHeight()
         local contentHeight = math.max(h, n * ROW_H)
+        self.content:SetWidth(math.max(1, self.scroll:GetWidth() - SCROLLBAR_W - 4))
         self.content:SetHeight(contentHeight)
-        local maxOffset = math.max(0, contentHeight - h)
+        -- 2) 调整滚动位置(仅在需要校正时触发事件, 事件内会渲染行)
+        local maxOffset = self:GetMaxOffset()
         local offset = Clamp(self.scroll:GetVerticalScroll(), 0, maxOffset)
-        self.scroll:SetVerticalScroll(offset)
-        -- 可视行数超过按钮池时动态补充
-        local need = math.ceil(h / ROW_H) + 1
-        while need > #self.buttons do
-            MakeButton(#self.buttons + 1)
+        if offset ~= self.scroll:GetVerticalScroll() then
+            self.scroll:SetVerticalScroll(offset)
+        else
+            self:UpdateRows(offset)
         end
+        -- 3) 滚动条状态
         if maxOffset > 0 then
             self.sb:Show()
             self.sb:SetMinMaxValues(0, maxOffset)
@@ -322,16 +327,25 @@ local function CreateListBox(parent)
         else
             self.sb:Hide()
         end
+    end
+
+    function box:UpdateRows(offset)
+        local n = #self.items
+        local h = self.scroll:GetHeight()
+        -- 可视行数超过按钮池时动态补充
+        local need = math.ceil(h / ROW_H) + 1
+        while need > #self.buttons do
+            MakeButton(#self.buttons + 1)
+        end
         local first = math.floor(offset / ROW_H)
-        local pixel = offset - first * ROW_H
         for i = 1, #self.buttons do
             local b = self.buttons[i]
             local idx = first + i
             if idx <= n then
                 b:Show()
                 b:ClearAllPoints()
-                b:SetPoint('TOPLEFT', self.scroll, 'TOPLEFT', 2, -((i - 1) * ROW_H) + pixel)
-                b:SetPoint('TOPRIGHT', self.scroll, 'TOPRIGHT', -(SCROLLBAR_W + 6), -((i - 1) * ROW_H) + pixel)
+                b:SetPoint('TOPLEFT', self.content, 'TOPLEFT', 0, -((first + i - 1) * ROW_H))
+                b:SetPoint('TOPRIGHT', self.content, 'TOPRIGHT', 0, -((first + i - 1) * ROW_H))
                 b.index = idx
                 if idx == self.selected then
                     b.sel:Show()
@@ -595,7 +609,7 @@ local function BuildUI()
     -- 描述滚动区
     descScroll = CreateFrame('ScrollFrame', nil, spellBox)
     descScroll:SetPoint('TOPLEFT', tagRow, 'BOTTOMLEFT', 0, -10)
-    descScroll:SetPoint('BOTTOMRIGHT', spellBox, 'BOTTOMRIGHT', -SCROLLBAR_W, 6)
+    descScroll:SetPoint('BOTTOMRIGHT', spellBox, 'BOTTOMRIGHT', -2, 6)
     descScroll:EnableMouseWheel(true)
     descText = descScroll:CreateFontString(nil, 'OVERLAY', 'GameFontNormal')
     descText:SetPoint('TOPLEFT')
