@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""打包插件为 AAA_TOC.zip (内含 AAA_TOC/ 目录, 解压到 Interface/AddOns/ 即可加载)
-用法: python3 package.py [输出路径]   (默认输出到仓库根目录 AAA_TOC.zip)
+"""打包插件为 RecallAAA.zip (内含 RecallAAA/ 目录, 解压到 Interface/AddOns/ 即可加载)
+用法: python3 package.py [输出路径]   (默认输出到仓库根目录 RecallAAA.zip)
 """
 import os
 import sys
@@ -8,7 +8,7 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ADDON_DIR = os.path.join(ROOT, "addon")
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "AAA_TOC.zip")
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "RecallAAA.zip")
 
 
 def main() -> int:
@@ -28,7 +28,7 @@ def main() -> int:
             for f in files:
                 full = os.path.join(root, f)
                 rel = os.path.relpath(full, ADDON_DIR).replace(os.sep, "/")
-                zf.write(full, os.path.join("AAA_TOC", rel))
+                zf.write(full, os.path.join("RecallAAA", rel))
 
     print(f"已打包: {out_abs}")
     return 0
