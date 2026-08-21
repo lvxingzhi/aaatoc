@@ -565,7 +565,7 @@ end
 -------------------------------------------------------------------------------
 local function BuildUI()
     -- 副本框
-    dungeonBox = CreateBox('dungeon', '副本', 180, 400)
+    dungeonBox = CreateBox('dungeon', '副本', 160, 400)
     dungeonList = CreateListBox(dungeonBox)
     dungeonList.frame:SetPoint('TOPLEFT', dungeonBox, 'TOPLEFT', 4, -28)
     dungeonList.frame:SetPoint('BOTTOMRIGHT', dungeonBox, 'BOTTOMRIGHT', -4, -18)
@@ -741,13 +741,13 @@ local function ResetFrames()
     dungeonList:SetSelected(0)
     mobList:SetSelected(0)
     spellList:SetSelected(0)
-    LoadFrame(dungeonBox, { 'CENTER', UIParent, 'CENTER', -390, 20 })
+    LoadFrame(dungeonBox, { 'CENTER', UIParent, 'CENTER', -380, 20 })
     LoadFrame(mobBox, { 'TOPLEFT', dungeonBox, 'TOPRIGHT', 8, 0 })
     LoadFrame(spellBox, { 'TOPLEFT', mobBox, 'TOPRIGHT', 8, 0 })
 end
 
 BuildUI()
-LoadFrame(dungeonBox, { 'CENTER', UIParent, 'CENTER', -390, 20 })
+LoadFrame(dungeonBox, { 'CENTER', UIParent, 'CENTER', -380, 20 })
 LoadFrame(mobBox, { 'TOPLEFT', dungeonBox, 'TOPRIGHT', 8, 0 })
 LoadFrame(spellBox, { 'TOPLEFT', mobBox, 'TOPRIGHT', 8, 0 })
 dungeonBox:Hide()
