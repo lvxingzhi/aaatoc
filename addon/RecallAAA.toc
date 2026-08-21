@@ -1,10 +1,10 @@
 ## Interface: 120100
-## Title: |cffd0a85cAAA|r TOC
+## Title: |cffd0a85cRecall|r AAA
 ## Notes: 副本 / 怪物 / 技能速查手册
 ## Author: aaatoc
 ## Version: 1.0.0
-## SavedVariables: AAATOCDB
+## SavedVariables: RecallAAADB
 ## IconTexture: Interface\Icons\INV_Misc_Book_11
 
 data.lua
-AAA_TOC.lua
+RecallAAA.lua

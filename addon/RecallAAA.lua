@@ -1,17 +1,17 @@
--- AAA TOC - 副本 / 怪物 / 技能速查手册
--- /aaa 打开, /aaa reset 重置位置
+-- RecallAAA - 副本 / 怪物 / 技能速查手册
+-- /recall 打开, /recall reset 重置位置
 -- 全部手动点击: 点副本显示怪物, 再点同一个取消; 点怪物显示技能, 再点同一个取消
 -- 三个窗口可分别拖拽移动(标题栏)与调整大小(右下角手柄)
 
 local ADDON_NAME, NS = ...
 
-local D = AAATOC_Data
+local D = RecallAAA_Data
 if not D or type(D.m) ~= 'table' or next(D.m) == nil then
-    print('|cffff6666AAA TOC|r: 未找到数据, 请先运行 build_data.py 生成 data.lua, 然后 /reload')
+    print('|cffff6666RecallAAA|r: 未找到数据, 请先运行 build_data.py 生成 data.lua, 然后 /reload')
     return
 end
 
-AAATOCDB = AAATOCDB or {}
+RecallAAADB = RecallAAADB or {}
 
 local ROW_H = 24
 local SCROLLBAR_W = 20 -- 滚动条模板宽度, 列表/描述区统一定位用
@@ -66,11 +66,11 @@ local function SaveFrame(f)
     if not l or not t then return end
     local W, H = UIParent:GetWidth(), UIParent:GetHeight()
     if W <= 0 or H <= 0 then return end
-    AAATOCDB[f.key] = { x = l / W, y = t / H, w = f:GetWidth(), h = f:GetHeight() }
+    RecallAAADB[f.key] = { x = l / W, y = t / H, w = f:GetWidth(), h = f:GetHeight() }
 end
 
 local function LoadFrame(f, anchor)
-    local s = AAATOCDB[f.key]
+    local s = RecallAAADB[f.key]
     f:ClearAllPoints()
     if s and s.x ~= nil and s.y ~= nil and s.w and s.h then
         local W, H = UIParent:GetWidth(), UIParent:GetHeight()
@@ -736,7 +736,7 @@ local function ShowAll(show)
 end
 
 local function ResetFrames()
-    AAATOCDB = {}
+    RecallAAADB = {}
     currentDungeon, currentMob, currentSpell = nil, nil, nil
     dungeonList:SetSelected(0)
     mobList:SetSelected(0)
@@ -754,21 +754,21 @@ dungeonBox:Hide()
 mobBox:Hide()
 spellBox:Hide()
 
-SLASH_AAATOC1 = '/aaa'
-SlashCmdList.AAATOC = function(msg)
+SLASH_RECALLAAA1 = '/recall'
+SlashCmdList.RECALLAAA = function(msg)
     msg = strtrim(msg or ''):lower()
     if msg == 'reset' then
         ResetFrames()
         ShowAll(true)
-        print('|cff88ccffAAA TOC|r: 位置、大小与选择已重置')
+        print('|cff88ccffRecallAAA|r: 位置、大小与选择已重置')
     elseif msg == 'show' then
         ShowAll(true)
     elseif msg == 'hide' then
         ShowAll(false)
     elseif msg == 'help' then
-        print('|cff88ccffAAA TOC|r 命令:')
-        print('  /aaa        显示/隐藏')
-        print('  /aaa reset  重置窗口位置、大小和选择')
+        print('|cff88ccffRecallAAA|r 命令:')
+        print('  /recall        显示/隐藏')
+        print('  /recall reset  重置窗口位置、大小和选择')
     else
         ShowAll(not dungeonBox:IsShown())
     end
