@@ -15,7 +15,7 @@ AAATOCDB = AAATOCDB or {}
 
 local ROW_H = 24
 local SCROLLBAR_W = 20 -- 滚动条模板宽度, 列表/描述区统一定位用
-local DESC_PAD = 22    -- 描述区右侧留白(技能名/英文名/ID 右边界)
+local DESC_PAD = 22    -- 描述区右侧留白(技能名/ID 右边界)
 local unpack = unpack or table.unpack
 -- bit 库为 WoW 内置, 做兼容兜底: 缺失时不显示技能标志, 避免 nil 调用报错
 local bit_band = bit and bit.band or function(a, b) return 0 end
@@ -377,6 +377,7 @@ local function ClearRowFlags(b)
 end
 
 local function RenderDungeonRow(b, item)
+    b.txt:SetFontObject('GameFontNormalSmall')
     b.txt:SetText(item[1])
     b.txt:SetTextColor(unpack(COLORS.text))
     ClearRowFlags(b)
@@ -417,7 +418,7 @@ end
 -------------------------------------------------------------------------------
 -- 描述面板 (技能框右侧)
 -------------------------------------------------------------------------------
-local descName, descNameEn, descId, descTags, tagRow, descScroll, descText
+local descName, descId, descTags, tagRow, descScroll, descText
 
 -- 根据描述文本内容调整滚动内容高度，保证长文本可以完整滚动
 local function UpdateDescHeight()
@@ -455,7 +456,6 @@ end
 local function ShowSpell(sp)
     if not sp then
         descName:SetText('')
-        descNameEn:SetText('')
         descId:SetText('')
         descText:SetText('点击左侧技能查看详情')
         descText:SetTextColor(unpack(COLORS.sub))
@@ -463,10 +463,9 @@ local function ShowSpell(sp)
         UpdateDescHeight()
         return
     end
-    local name, nameEn, id, flags, desc = unpack(sp)
+    local name, _, id, flags, desc = unpack(sp)
     descName:SetText(name)
     descName:SetTextColor(1, 1, 1)
-    descNameEn:SetText(nameEn ~= '' and nameEn or '')
     descId:SetText('ID ' .. id)
     for i = 1, 7 do
         local f = FLAGS[i]
@@ -534,7 +533,7 @@ local function SelectMob(mi)
         local spells = mobs and mobs[mi] and mobs[mi][2] or {}
         spellList:SetItems(spells, RenderSpellRow, SelectSpell, function(si)
             local sp = spells[si]
-            ShowTooltip({ sp[1], '|cff888888' .. sp[2] .. '|r', '|cff666666ID ' .. sp[3] .. '|r' })
+            ShowTooltip({ sp[1], '|cff666666ID ' .. sp[3] .. '|r' })
         end)
         ShowSpell(nil)
     end
@@ -556,7 +555,7 @@ local function SelectDungeon(idx)
         local mobs = D.m[idx] or {}
         mobList:SetItems(mobs, RenderMobRow, SelectMob, function(mi)
             local meta = mobs[mi][1]
-            ShowTooltip({ meta[1], '|cff888888' .. meta[2] .. '|r', '|cff666666NPC ' .. meta[3] .. '|r' })
+            ShowTooltip({ meta[1], '|cff666666NPC ' .. meta[3] .. '|r' })
         end)
     end
 end
@@ -566,7 +565,7 @@ end
 -------------------------------------------------------------------------------
 local function BuildUI()
     -- 副本框
-    dungeonBox = CreateBox('dungeon', '副本', 240, 400)
+    dungeonBox = CreateBox('dungeon', '副本', 180, 400)
     dungeonList = CreateListBox(dungeonBox)
     dungeonList.frame:SetPoint('TOPLEFT', dungeonBox, 'TOPLEFT', 4, -28)
     dungeonList.frame:SetPoint('BOTTOMRIGHT', dungeonBox, 'BOTTOMRIGHT', -4, -18)
@@ -596,7 +595,7 @@ local function BuildUI()
         divider:SetPoint('BOTTOMLEFT', self, 'BOTTOMLEFT', x, 4)
         if descScroll then
             local left = x + 10
-            local top = 30 + 18 + 18 + 10
+            local top = 30 + 18 + 10
             local right = 2 + SCROLLBAR_W
             local bottom = 6
             local descW = math.max(1, w - left - right)
@@ -620,7 +619,7 @@ local function BuildUI()
     spellList.frame:SetPoint('BOTTOMRIGHT', divider, 'BOTTOMLEFT', -2, 0)
     spellList.emptyText = '选择怪物查看技能'
 
-    -- 描述区: 技能名 / 英文名+ID / 徽章 / 描述
+    -- 描述区: 技能名 / ID / 徽章 / 描述
     descId = spellBox:CreateFontString(nil, 'OVERLAY', 'GameFontDisableSmall')
     descId:SetPoint('TOPRIGHT', spellBox, 'TOPRIGHT', -DESC_PAD, -30)
     descId:SetTextColor(unpack(COLORS.sub))
@@ -631,14 +630,8 @@ local function BuildUI()
     descName:SetJustifyH('LEFT')
     descName:SetWordWrap(false)
 
-    descNameEn = spellBox:CreateFontString(nil, 'OVERLAY', 'GameFontDisableSmall')
-    descNameEn:SetPoint('TOPLEFT', descName, 'BOTTOMLEFT', 0, -2)
-    descNameEn:SetPoint('RIGHT', spellBox, 'RIGHT', -DESC_PAD, 0)
-    descNameEn:SetJustifyH('LEFT')
-    descNameEn:SetWordWrap(false)
-
     tagRow = CreateFrame('Frame', nil, spellBox)
-    tagRow:SetPoint('TOPLEFT', descNameEn, 'BOTTOMLEFT', 0, -6)
+    tagRow:SetPoint('TOPLEFT', descName, 'BOTTOMLEFT', 0, -6)
     descTags = {}
     for i = 1, 7 do
         local tag = CreateFrame('Frame', nil, tagRow)
@@ -672,8 +665,8 @@ local function BuildUI()
         if not w or not h or w <= 0 or h <= 0 then return end
         -- 技能框右侧 45% 为描述区 (divider 位于 45% 位置)
         local left = w * 0.45 + 10
-        -- 描述区顶部: 标题30 + 英文名18 + 标签行18 + 间距10
-        local top = 30 + 18 + 18 + 10
+        -- 描述区顶部: 标题30 + 标签行18 + 间距10
+        local top = 30 + 18 + 10
         -- 右侧给滚动条留出空间, 底部留 6
         local right = 2 + SCROLLBAR_W
         local bottom = 6
@@ -722,7 +715,7 @@ local function BuildUI()
     -- 列表数据 (不预选副本)
     dungeonList:SetItems(D.d, RenderDungeonRow, SelectDungeon, function(di)
         local d = D.d[di]
-        local lines = { d[1], '|cff888888' .. d[2] .. '|r' }
+        local lines = { d[1] }
         if d[3] and d[3] ~= '' then table.insert(lines, '|cff666666' .. d[3] .. '|r') end
         ShowTooltip(lines)
     end)
@@ -748,16 +741,16 @@ local function ResetFrames()
     dungeonList:SetSelected(0)
     mobList:SetSelected(0)
     spellList:SetSelected(0)
-    LoadFrame(dungeonBox, { 'CENTER', UIParent, 'CENTER', -420, 20 })
+    LoadFrame(dungeonBox, { 'CENTER', UIParent, 'CENTER', -390, 20 })
     LoadFrame(mobBox, { 'TOPLEFT', dungeonBox, 'TOPRIGHT', 8, 0 })
     LoadFrame(spellBox, { 'TOPLEFT', mobBox, 'TOPRIGHT', 8, 0 })
 end
 
 BuildUI()
-LoadFrame(dungeonBox, { 'CENTER', UIParent, 'CENTER', -420, 20 })
+LoadFrame(dungeonBox, { 'CENTER', UIParent, 'CENTER', -390, 20 })
 LoadFrame(mobBox, { 'TOPLEFT', dungeonBox, 'TOPRIGHT', 8, 0 })
 LoadFrame(spellBox, { 'TOPLEFT', mobBox, 'TOPRIGHT', 8, 0 })
-dungeonBox:Show()
+dungeonBox:Hide()
 mobBox:Hide()
 spellBox:Hide()
 
